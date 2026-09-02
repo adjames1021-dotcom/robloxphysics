@@ -1,7 +1,11 @@
 # Draggable Items (Physics)
 
 One script: anything tagged `Draggable` can be grabbed and dragged around with
-real physics — it has weight, collides with things, and falls when you let go.
+real physics — it has weight, collides with the world and with players, and
+falls when you let go. Works in third person and first person (aim the
+crosshair, click-hold, steer with the camera). Dragging is smoothed by handing
+physics control to the dragging player and pulling from the object's center
+of mass.
 
 ## Project layout
 
