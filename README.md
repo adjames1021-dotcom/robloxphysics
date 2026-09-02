@@ -1,4 +1,4 @@
-# Draggable Items (Lumber Tycoon 2 Style)
+# Draggable Items (Physics Carry)
 
 Click and hold any tagged item to carry it on a springy physics leash in front
 of your camera — crosshair in first person, mouse cursor in third person —

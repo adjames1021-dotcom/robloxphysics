@@ -1,4 +1,4 @@
--- Client side of the Lumber Tycoon 2 style carry system.
+-- Client side of the physics carry system.
 --
 -- WHAT IT DOES:
 --   Click and HOLD a tagged item to carry it. The item floats toward a point

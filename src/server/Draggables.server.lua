@@ -1,4 +1,4 @@
--- Server side of the Lumber Tycoon 2 style carry system.
+-- Server side of the physics carry system.
 --
 -- HOW TO SET UP AN ITEM IN STUDIO:
 --   1. Make a Part or Model. Leave it UNANCHORED (Anchored = false).
