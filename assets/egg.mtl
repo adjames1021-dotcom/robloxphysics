@@ -1,5 +1,6 @@
 newmtl egg_mat
-Kd 0.96 0.93 0.85
-Ka 0.96 0.93 0.85
-Ks 0.02 0.02 0.02
-Ns 5
+Kd 1 1 1
+Ka 1 1 1
+Ks 0.03 0.03 0.03
+Ns 8
+map_Kd egg_texture.png
