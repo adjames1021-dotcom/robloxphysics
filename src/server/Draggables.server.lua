@@ -44,6 +44,12 @@ local BAKE_TIME = 6
 -- The color raw dough turns when it finishes baking.
 local COOKED_COLOR = Color3.fromRGB(148, 92, 44)
 
+-- How strongly KeepUpright items are nudged back to standing. Torque scales
+-- with the item's mass so light and heavy items feel the same. Higher =
+-- rights itself faster and is harder to knock over; lower = wobblier.
+local UPRIGHT_TORQUE_PER_MASS = 400
+local UPRIGHT_RESPONSIVENESS = 15
+
 --------------------------------------------------------------------
 -- RemoteEvents: the "phone line" between client and server
 --------------------------------------------------------------------
@@ -318,6 +324,42 @@ task.spawn(function()
 		end
 	end
 end)
+
+--------------------------------------------------------------------
+-- KeepUpright: gently nudge tagged items back to standing
+--------------------------------------------------------------------
+-- An AlignOrientation with LIMITED torque constantly steers the item's
+-- up-axis toward world-up - like a toy with a weighted bottom. Because the
+-- torque is capped, the item can still tip over, tumble when thrown, and
+-- wobble; it just prefers to end up upright. Yaw (spinning like a top) is
+-- left completely free.
+local function setupKeepUpright(item)
+	local mainPart = getMainPart(item)
+	if not mainPart or mainPart:FindFirstChild("UprightForce") then
+		return
+	end
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = "UprightAttachment"
+	attachment.Axis = Vector3.new(0, 1, 0) -- the axis we want pointing up
+	attachment.Parent = mainPart
+
+	local align = Instance.new("AlignOrientation")
+	align.Name = "UprightForce"
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.Attachment0 = attachment
+	align.PrimaryAxisOnly = true -- only steer the up-axis, leave yaw free
+	align.PrimaryAxis = Vector3.new(0, 1, 0) -- ...toward world up
+	align.RigidityEnabled = false
+	align.MaxTorque = mainPart.AssemblyMass * UPRIGHT_TORQUE_PER_MASS
+	align.Responsiveness = UPRIGHT_RESPONSIVENESS
+	align.Parent = mainPart
+end
+
+for _, item in ipairs(CollectionService:GetTagged(Tags.KeepUpright)) do
+	setupKeepUpright(item)
+end
+CollectionService:GetInstanceAddedSignal(Tags.KeepUpright):Connect(setupKeepUpright)
 
 --------------------------------------------------------------------
 -- Prepare every tagged item

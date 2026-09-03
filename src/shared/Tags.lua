@@ -11,4 +11,7 @@ return {
 
 	Oven = "Oven", -- an invisible region part: anything tagged UncookedCookie
 	-- that sits inside it for a few seconds turns cooked brown
+
+	KeepUpright = "KeepUpright", -- gently nudges the item back upright, like a
+	-- weighted-bottom toy: it can still tip and tumble, it just rights itself
 }

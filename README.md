@@ -35,6 +35,14 @@ snaps centered onto it and sticks (invisible weld); grab it to take it off.
   (e.g. a cookie sheet) with a Studio WeldConstraint - carrying the sheet
   then carries every slotted item along.
 
+## Keep-upright items (tag: `KeepUpright`)
+
+Tag an item `KeepUpright` and it gets a gentle self-righting nudge - like a
+weighted-bottom toy. It can still tip, tumble, and wobble (nothing is
+locked); it just prefers to end up standing. Good for the milk carton and
+flour bag. Strength knobs (`UPRIGHT_TORQUE_PER_MASS`, `UPRIGHT_RESPONSIVENESS`)
+are at the top of `Draggables.server.lua`.
+
 ## Oven & raw dough
 
 - Tag raw dough items `UncookedCookie` (plus `Draggable` so they can be
