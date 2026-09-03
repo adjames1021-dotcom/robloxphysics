@@ -175,32 +175,47 @@ local function detachFromSurface(item)
 	itemSlot[item] = nil
 end
 
--- After an item is dropped, wait for it to come to rest, then look straight
--- down: if it landed on a free slot pad, snap it in.
+-- How close (studs) a dropped item can be to a free pad and still snap in.
+local ATTACH_RANGE = 4
+
+-- The pads are "magnetic": find the closest free pad near the item.
+local function findNearestFreeSlot(item, mainPart)
+	local itemPosition = item:GetPivot().Position
+	local best, bestDistance = nil, ATTACH_RANGE
+
+	for _, slot in ipairs(CollectionService:GetTagged(Tags.AttachSurface)) do
+		if slot:IsA("BasePart")
+			and slot:IsDescendantOf(workspace)
+			and not slot:IsDescendantOf(item) -- a pad can't catch its own tray
+			and slot.AssemblyRootPart ~= mainPart.AssemblyRootPart -- already one piece with us
+			and isSlotFree(slot) then
+			local distance = (slot.Position - itemPosition).Magnitude
+			if distance < bestDistance then
+				best, bestDistance = slot, distance
+			end
+		end
+	end
+	return best
+end
+
+-- After an item is dropped, wait for it to come to rest, then snap it to
+-- the nearest free pad if one is within ATTACH_RANGE studs.
 local function tryAttachToSurface(item)
 	local mainPart = getMainPart(item)
 	if not mainPart then
 		return
 	end
 
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { item }
-
-	for _ = 1, 6 do -- keep checking for ~2 seconds while it settles
-		task.wait(0.35)
+	for _ = 1, 10 do -- keep checking for ~3 seconds while it settles
+		task.wait(0.3)
 		if not item.Parent or carriedBy[item] then
 			return -- item was destroyed, or someone grabbed it again
 		end
-		-- Still tumbling? Wait for the next check.
-		if mainPart.AssemblyLinearVelocity.Magnitude < 2 then
-			local origin = item:GetPivot().Position
-			local rayLength = getHalfHeight(item) + 1.5
-			local result = workspace:Raycast(origin, Vector3.new(0, -rayLength, 0), params)
-			if result
-				and CollectionService:HasTag(result.Instance, Tags.AttachSurface)
-				and isSlotFree(result.Instance) then
-				attachItemToSlot(item, result.Instance)
+		-- Still tumbling fast? Wait for the next check.
+		if mainPart.AssemblyLinearVelocity.Magnitude < 4 then
+			local slot = findNearestFreeSlot(item, mainPart)
+			if slot then
+				attachItemToSlot(item, slot)
 			end
 			return -- settled: either slotted or resting somewhere else
 		end

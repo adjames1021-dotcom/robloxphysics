@@ -27,8 +27,9 @@ src/client/                  -> StarterPlayer.StarterPlayerScripts
 
 ## Slot pads (tag: `AttachSurface`)
 
-A slot pad holds exactly **one** item. Drop a draggable item on a pad and it
-snaps centered onto it and sticks (invisible weld); grab it to take it off.
+A slot pad holds exactly **one** item. Drop a draggable item on or near a
+free pad (within ~4 studs) and once it comes to rest it snaps centered onto
+the pad and sticks (invisible weld); grab it to take it off.
 
 - **On a counter:** anchor the pad where items should be placeable.
 - **On a draggable object:** make the pad unanchored, weld it to the object
