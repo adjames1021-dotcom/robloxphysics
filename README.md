@@ -25,15 +25,26 @@ src/client/                  -> StarterPlayer.StarterPlayerScripts
    For a Model: weld its parts together and set a PrimaryPart.
 2. Tag it `Draggable` (Properties > Tags, or Model tab > Tag Editor).
 
-## Attach surfaces (cookie sheets, trays, counters)
+## Slot pads (tag: `AttachSurface`)
 
-Tag a part `AttachSurface` and any draggable item dropped on top of it
-sticks in place (an invisible weld). Grab a stuck item to take it back off.
+A slot pad holds exactly **one** item. Drop a draggable item on a pad and it
+snaps centered onto it and sticks (invisible weld); grab it to take it off.
 
-- Tag a part with **both** `Draggable` and `AttachSurface` for a carryable
-  tray: carry the cookie sheet and everything stuck to it rides along.
-- An **anchored** part tagged `AttachSurface` (a counter, a shelf) holds
-  items exactly where you set them down.
+- **On a counter:** anchor the pad where items should be placeable.
+- **On a draggable object:** make the pad unanchored, weld it to the object
+  (e.g. a cookie sheet) with a Studio WeldConstraint - carrying the sheet
+  then carries every slotted item along.
+
+## Oven & raw dough
+
+- Tag raw dough items `UncookedCookie` (plus `Draggable` so they can be
+  carried). Any shape/color works.
+- Make an invisible part filling the inside of your oven: Anchored = true,
+  CanCollide = false, Transparency = 1, tagged `Oven`.
+- Dough that sits inside the oven region for ~6 seconds turns cooked brown
+  (and stops being `UncookedCookie`). Pulling it out early resets progress.
+  Bake time and the cooked color are constants at the top of
+  `Draggables.server.lua`.
 
 Press Play, then click-hold an item and walk/look around while carrying it.
 Tuning knobs (hold distance, pull strength, grab range) are constants at the

@@ -1,7 +1,14 @@
 -- Names of the CollectionService tags used across the game.
 return {
 	Draggable = "Draggable", -- anything the player can pick up and drag around
-	AttachSurface = "AttachSurface", -- surfaces items stick to when dropped on them
-	-- (cookie sheets, trays, counters). Tag a part with BOTH Draggable and
-	-- AttachSurface to make a carryable tray that items ride along on.
+
+	AttachSurface = "AttachSurface", -- a SLOT PAD: holds exactly one item.
+	-- Drop an item on it -> the item snaps centered onto the pad and sticks.
+	-- Grab the item -> it comes off. Anchor a pad on a counter, or weld an
+	-- unanchored pad onto a draggable object (like a cookie sheet) in Studio.
+
+	UncookedCookie = "UncookedCookie", -- raw dough: bakes when inside an Oven
+
+	Oven = "Oven", -- an invisible region part: anything tagged UncookedCookie
+	-- that sits inside it for a few seconds turns cooked brown
 }

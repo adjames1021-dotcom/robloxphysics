@@ -5,11 +5,18 @@
 --      (For a Model, weld its parts together and set a PrimaryPart.)
 --   2. Add the tag "Draggable" to it (Properties > Tags, or the Tag Editor).
 --
--- ATTACH SURFACES (cookie sheets, trays, counters):
---   Tag a part "AttachSurface" and anything you drop on top of it sticks to
---   it. Grab a stuck item to take it back off. Tag a part with BOTH
---   "Draggable" and "AttachSurface" to make a carryable tray - carry the
---   cookie sheet and the cookies riding on it come along.
+-- SLOT PADS (tag: AttachSurface):
+--   A slot pad holds exactly ONE item. Drop an item on a pad and it snaps
+--   centered onto it and sticks; grab it to take it back off. Anchor a pad
+--   on a counter, or weld an unanchored pad onto a draggable object (like a
+--   cookie sheet) with a Studio WeldConstraint - then carrying the sheet
+--   carries every slotted item with it.
+--
+-- OVEN (tag: Oven) + RAW DOUGH (tag: UncookedCookie):
+--   Make an invisible part filling the inside of your oven, tag it "Oven"
+--   (Anchored = true, CanCollide = false, Transparency = 1). Any item tagged
+--   "UncookedCookie" that sits inside it for BAKE_TIME seconds turns cooked
+--   brown. Pulling it out early resets its progress.
 --
 -- The actual carrying happens in the client script (DragController), because
 -- that's where the camera lives. This server script's jobs are:
@@ -18,7 +25,8 @@
 --     and not already carried by someone else)
 --   * hand physics control ("network ownership") of the item to the carrier
 --     while they hold it, so it moves with zero lag on their screen
---   * stick dropped items to attach surfaces, and unstick them when grabbed
+--   * snap dropped items into free slot pads, and release them when grabbed
+--   * bake raw dough that sits inside an oven region
 
 local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
@@ -29,6 +37,12 @@ local Tags = require(ReplicatedStorage:WaitForChild("Tags"))
 -- How far away (in studs) a player may be when grabbing an item.
 -- The client checks this too, but the server check is the one that counts.
 local MAX_GRAB_DISTANCE = 35
+
+-- How long (seconds) raw dough must stay inside an oven to finish baking.
+local BAKE_TIME = 6
+
+-- The color raw dough turns when it finishes baking.
+local COOKED_COLOR = Color3.fromRGB(148, 92, 44)
 
 --------------------------------------------------------------------
 -- RemoteEvents: the "phone line" between client and server
@@ -99,10 +113,48 @@ local carriedBy = {} -- item -> player
 local carrying = {} -- player -> item
 
 --------------------------------------------------------------------
--- Sticking items to attach surfaces
+-- Slot pads: each AttachSurface holds exactly one item
 --------------------------------------------------------------------
+local slotOccupant = {} -- slot pad part -> the item sitting in it
+local itemSlot = {} -- item -> the slot pad it sits in
 
--- Unsticks the item: removes any weld our attach system created on it.
+-- Is this slot pad empty? (Also tidies up if its old occupant vanished.)
+local function isSlotFree(slot)
+	local occupant = slotOccupant[slot]
+	if occupant then
+		if occupant.Parent and itemSlot[occupant] == slot then
+			return false
+		end
+		slotOccupant[slot] = nil -- stale entry, clean it up
+	end
+	return true
+end
+
+-- Snaps the item centered on top of the slot pad and welds it there.
+-- A WeldConstraint is like an invisible bolt: the item becomes one solid
+-- piece with the pad until the weld is destroyed.
+local function attachItemToSlot(item, slot)
+	local mainPart = getMainPart(item)
+	if not mainPart then
+		return
+	end
+
+	local restingHeight = slot.Size.Y / 2 + getHalfHeight(item)
+	item:PivotTo(slot.CFrame * CFrame.new(0, restingHeight, 0))
+	mainPart.AssemblyLinearVelocity = Vector3.zero
+	mainPart.AssemblyAngularVelocity = Vector3.zero
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Name = "SurfaceWeld"
+	weld.Part0 = slot
+	weld.Part1 = mainPart
+	weld.Parent = mainPart
+
+	slotOccupant[slot] = item
+	itemSlot[item] = slot
+end
+
+-- Unsticks the item: removes its weld and frees up its slot.
 local function detachFromSurface(item)
 	for _, part in ipairs(getParts(item)) do
 		local weld = part:FindFirstChild("SurfaceWeld")
@@ -110,12 +162,15 @@ local function detachFromSurface(item)
 			weld:Destroy()
 		end
 	end
+	local slot = itemSlot[item]
+	if slot and slotOccupant[slot] == item then
+		slotOccupant[slot] = nil
+	end
+	itemSlot[item] = nil
 end
 
 -- After an item is dropped, wait for it to come to rest, then look straight
--- down: if it's sitting on a part tagged AttachSurface, weld it in place.
--- A WeldConstraint is like an invisible bolt - the item becomes one solid
--- piece with the surface until the weld is destroyed.
+-- down: if it landed on a free slot pad, snap it in.
 local function tryAttachToSurface(item)
 	local mainPart = getMainPart(item)
 	if not mainPart then
@@ -136,18 +191,19 @@ local function tryAttachToSurface(item)
 			local origin = item:GetPivot().Position
 			local rayLength = getHalfHeight(item) + 1.5
 			local result = workspace:Raycast(origin, Vector3.new(0, -rayLength, 0), params)
-			if result and CollectionService:HasTag(result.Instance, Tags.AttachSurface) then
-				local weld = Instance.new("WeldConstraint")
-				weld.Name = "SurfaceWeld"
-				weld.Part0 = result.Instance
-				weld.Part1 = mainPart
-				weld.Parent = mainPart
-				mainPart.AssemblyLinearVelocity = Vector3.zero
+			if result
+				and CollectionService:HasTag(result.Instance, Tags.AttachSurface)
+				and isSlotFree(result.Instance) then
+				attachItemToSlot(item, result.Instance)
 			end
-			return -- settled: either welded or resting somewhere else
+			return -- settled: either slotted or resting somewhere else
 		end
 	end
 end
+
+--------------------------------------------------------------------
+-- Grabbing and releasing
+--------------------------------------------------------------------
 
 local function release(player)
 	local item = carrying[player]
@@ -185,7 +241,7 @@ startDragRemote.OnServerEvent:Connect(function(player, item)
 
 	release(player) -- drop anything they were already holding
 
-	-- Grabbing a stuck item takes it OFF its surface.
+	-- Grabbing a slotted item takes it OFF its slot pad.
 	detachFromSurface(item)
 
 	carrying[player] = item
@@ -201,6 +257,67 @@ end)
 
 stopDragRemote.OnServerEvent:Connect(release)
 Players.PlayerRemoving:Connect(release)
+
+--------------------------------------------------------------------
+-- The oven: bake raw dough that sits inside an Oven region
+--------------------------------------------------------------------
+
+-- Walks up from a touched part to the tagged dough item it belongs to.
+local function findUncookedItem(part)
+	local current = part
+	while current and current ~= workspace do
+		if CollectionService:HasTag(current, Tags.UncookedCookie) then
+			return current
+		end
+		current = current.Parent
+	end
+	return nil
+end
+
+local function bake(item)
+	for _, part in ipairs(getParts(item)) do
+		part.Color = COOKED_COLOR
+	end
+	CollectionService:RemoveTag(item, Tags.UncookedCookie)
+	item:SetAttribute("Cooked", true)
+end
+
+local bakeProgress = {} -- dough item -> seconds spent in an oven
+
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+
+		-- Find every raw dough item currently inside any oven region.
+		local inOven = {}
+		for _, oven in ipairs(CollectionService:GetTagged(Tags.Oven)) do
+			if oven:IsA("BasePart") and oven.Parent then
+				for _, part in ipairs(workspace:GetPartsInPart(oven)) do
+					local item = findUncookedItem(part)
+					if item then
+						inOven[item] = true
+					end
+				end
+			end
+		end
+
+		-- Tick up the timer for dough in an oven; bake when it's done.
+		for item in pairs(inOven) do
+			bakeProgress[item] = (bakeProgress[item] or 0) + 0.5
+			if bakeProgress[item] >= BAKE_TIME then
+				bakeProgress[item] = nil
+				bake(item)
+			end
+		end
+
+		-- Dough taken out early goes back to raw: progress resets.
+		for item in pairs(bakeProgress) do
+			if not inOven[item] then
+				bakeProgress[item] = nil
+			end
+		end
+	end
+end)
 
 --------------------------------------------------------------------
 -- Prepare every tagged item
