@@ -2,10 +2,10 @@
 return {
 	Draggable = "Draggable", -- anything the player can pick up and drag around
 
-	AttachSurface = "AttachSurface", -- a SLOT PAD: holds exactly one item.
-	-- Drop an item on it -> the item snaps centered onto the pad and sticks.
-	-- Grab the item -> it comes off. Anchor a pad on a counter, or weld an
-	-- unanchored pad onto a draggable object (like a cookie sheet) in Studio.
+	AttachSurface = "AttachSurface", -- an ITEM HOLDER: holds up to 6 draggable
+	-- items in an invisible 3x2 grid across its top. Drop an item on or near
+	-- it -> the item snaps into the nearest empty spot and sticks. Grab the
+	-- item -> it comes off. Tag a cookie sheet (also Draggable) or a counter.
 
 	UncookedCookie = "UncookedCookie", -- raw dough: bakes when inside an Oven
 

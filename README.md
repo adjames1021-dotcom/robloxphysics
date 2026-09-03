@@ -25,16 +25,19 @@ src/client/                  -> StarterPlayer.StarterPlayerScripts
    For a Model: weld its parts together and set a PrimaryPart.
 2. Tag it `Draggable` (Properties > Tags, or Model tab > Tag Editor).
 
-## Slot pads (tag: `AttachSurface`)
+## Item holders (tag: `AttachSurface`)
 
-A slot pad holds exactly **one** item. Drop a draggable item on or near a
-free pad (within ~4 studs) and once it comes to rest it snaps centered onto
-the pad and sticks (invisible weld); grab it to take it off.
+Tag ONE part and it holds up to **6 draggable items** in an invisible 3x2
+grid across its top - no extra parts to build. Drop an item on or near the
+holder and once it comes to rest it snaps into the nearest empty grid spot
+and sticks (invisible weld); grab it to take it off.
 
-- **On a counter:** anchor the pad where items should be placeable.
-- **On a draggable object:** make the pad unanchored, weld it to the object
-  (e.g. a cookie sheet) with a Studio WeldConstraint - carrying the sheet
-  then carries every slotted item along.
+- **Cookie sheet:** tag the sheet with both `Draggable` and `AttachSurface` -
+  carry the sheet and its 6 items ride along. (`assets/cookie_sheet/` has a
+  ready-made model.)
+- **Counter:** tag an anchored part to make a 6-slot placement area.
+- Grid size (`SLOT_COLUMNS`/`SLOT_ROWS`) and snap range (`ATTACH_RANGE`) are
+  constants in `Draggables.server.lua`.
 
 ## Keep-upright items (tag: `KeepUpright`)
 

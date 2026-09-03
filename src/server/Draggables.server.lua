@@ -5,12 +5,13 @@
 --      (For a Model, weld its parts together and set a PrimaryPart.)
 --   2. Add the tag "Draggable" to it (Properties > Tags, or the Tag Editor).
 --
--- SLOT PADS (tag: AttachSurface):
---   A slot pad holds exactly ONE item. Drop an item on a pad and it snaps
---   centered onto it and sticks; grab it to take it back off. Anchor a pad
---   on a counter, or weld an unanchored pad onto a draggable object (like a
---   cookie sheet) with a Studio WeldConstraint - then carrying the sheet
---   carries every slotted item with it.
+-- ITEM HOLDERS (tag: AttachSurface):
+--   Tag ONE part (a cookie sheet, a counter section) and it holds up to 6
+--   draggable items in an invisible 3x2 grid across its top - no extra
+--   parts needed. Drop an item on or near it and the item snaps into the
+--   nearest empty grid spot and sticks; grab it to take it back off.
+--   Works anchored (a counter) or on a draggable tray (tag it with BOTH
+--   Draggable and AttachSurface): carrying the tray carries its items.
 --
 -- OVEN (tag: Oven) + RAW DOUGH (tag: UncookedCookie):
 --   Make an invisible part filling the inside of your oven, tag it "Oven"
@@ -119,48 +120,70 @@ local carriedBy = {} -- item -> player
 local carrying = {} -- player -> item
 
 --------------------------------------------------------------------
--- Slot pads: each AttachSurface holds exactly one item
+-- Item holders: each AttachSurface part holds up to 6 items in a 3x2 grid
 --------------------------------------------------------------------
-local slotOccupant = {} -- slot pad part -> the item sitting in it
-local itemSlot = {} -- item -> the slot pad it sits in
 
--- Is this slot pad empty? (Also tidies up if its old occupant vanished.)
-local function isSlotFree(slot)
-	local occupant = slotOccupant[slot]
-	if occupant then
-		if occupant.Parent and itemSlot[occupant] == slot then
-			return false
-		end
-		slotOccupant[slot] = nil -- stale entry, clean it up
-	end
-	return true
+-- The grid across the holder's top (3 across its X size, 2 across its Z).
+local SLOT_COLUMNS = 3
+local SLOT_ROWS = 2
+local MAX_ITEMS = SLOT_COLUMNS * SLOT_ROWS
+
+-- How close (studs) a dropped item must be to a holder to snap into it.
+local ATTACH_RANGE = 5
+
+local holderItems = {} -- holder part -> { [gridIndex] = item }
+local itemHolder = {} -- item -> { holder = part, index = gridIndex }
+
+-- Where grid spot #index sits on top of the holder (in world space).
+local function getSlotCFrame(holder, index)
+	local column = (index - 1) % SLOT_COLUMNS
+	local row = math.floor((index - 1) / SLOT_COLUMNS)
+	local x = (column - (SLOT_COLUMNS - 1) / 2) * holder.Size.X / SLOT_COLUMNS
+	local z = (row - (SLOT_ROWS - 1) / 2) * holder.Size.Z / SLOT_ROWS
+	return holder.CFrame * CFrame.new(x, holder.Size.Y / 2, z)
 end
 
--- Snaps the item centered on top of the slot pad and welds it there.
+-- This holder's occupancy table, with vanished items tidied out.
+local function getHolderItems(holder)
+	local items = holderItems[holder]
+	if not items then
+		items = {}
+		holderItems[holder] = items
+	end
+	for index, occupant in pairs(items) do
+		local entry = itemHolder[occupant]
+		if not occupant.Parent or not entry
+			or entry.holder ~= holder or entry.index ~= index then
+			items[index] = nil -- stale entry, clean it up
+		end
+	end
+	return items
+end
+
+-- Snaps the item onto grid spot #index and welds it there.
 -- A WeldConstraint is like an invisible bolt: the item becomes one solid
--- piece with the pad until the weld is destroyed.
-local function attachItemToSlot(item, slot)
+-- piece with the holder until the weld is destroyed.
+local function attachItemToHolder(item, holder, index)
 	local mainPart = getMainPart(item)
 	if not mainPart then
 		return
 	end
 
-	local restingHeight = slot.Size.Y / 2 + getHalfHeight(item)
-	item:PivotTo(slot.CFrame * CFrame.new(0, restingHeight, 0))
+	item:PivotTo(getSlotCFrame(holder, index) * CFrame.new(0, getHalfHeight(item), 0))
 	mainPart.AssemblyLinearVelocity = Vector3.zero
 	mainPart.AssemblyAngularVelocity = Vector3.zero
 
 	local weld = Instance.new("WeldConstraint")
 	weld.Name = "SurfaceWeld"
-	weld.Part0 = slot
+	weld.Part0 = holder
 	weld.Part1 = mainPart
 	weld.Parent = mainPart
 
-	slotOccupant[slot] = item
-	itemSlot[item] = slot
+	getHolderItems(holder)[index] = item
+	itemHolder[item] = { holder = holder, index = index }
 end
 
--- Unsticks the item: removes its weld and frees up its slot.
+-- Unsticks the item: removes its weld and frees up its grid spot.
 local function detachFromSurface(item)
 	for _, part in ipairs(getParts(item)) do
 		local weld = part:FindFirstChild("SurfaceWeld")
@@ -168,38 +191,42 @@ local function detachFromSurface(item)
 			weld:Destroy()
 		end
 	end
-	local slot = itemSlot[item]
-	if slot and slotOccupant[slot] == item then
-		slotOccupant[slot] = nil
+	local entry = itemHolder[item]
+	if entry then
+		local items = holderItems[entry.holder]
+		if items and items[entry.index] == item then
+			items[entry.index] = nil
+		end
+		itemHolder[item] = nil
 	end
-	itemSlot[item] = nil
 end
 
--- How close (studs) a dropped item can be to a free pad and still snap in.
-local ATTACH_RANGE = 4
-
--- The pads are "magnetic": find the closest free pad near the item.
-local function findNearestFreeSlot(item, mainPart)
+-- Finds the closest empty grid spot on any holder near the item.
+local function findNearestFreeSpot(item, mainPart)
 	local itemPosition = item:GetPivot().Position
-	local best, bestDistance = nil, ATTACH_RANGE
+	local bestHolder, bestIndex, bestDistance = nil, nil, ATTACH_RANGE
 
-	for _, slot in ipairs(CollectionService:GetTagged(Tags.AttachSurface)) do
-		if slot:IsA("BasePart")
-			and slot:IsDescendantOf(workspace)
-			and not slot:IsDescendantOf(item) -- a pad can't catch its own tray
-			and slot.AssemblyRootPart ~= mainPart.AssemblyRootPart -- already one piece with us
-			and isSlotFree(slot) then
-			local distance = (slot.Position - itemPosition).Magnitude
-			if distance < bestDistance then
-				best, bestDistance = slot, distance
+	for _, holder in ipairs(CollectionService:GetTagged(Tags.AttachSurface)) do
+		if holder:IsA("BasePart")
+			and holder:IsDescendantOf(workspace)
+			and not holder:IsDescendantOf(item) -- a tray can't catch itself
+			and holder.AssemblyRootPart ~= mainPart.AssemblyRootPart then -- already one piece with us
+			local items = getHolderItems(holder)
+			for index = 1, MAX_ITEMS do
+				if not items[index] then
+					local distance = (getSlotCFrame(holder, index).Position - itemPosition).Magnitude
+					if distance < bestDistance then
+						bestHolder, bestIndex, bestDistance = holder, index, distance
+					end
+				end
 			end
 		end
 	end
-	return best
+	return bestHolder, bestIndex
 end
 
--- After an item is dropped, wait for it to come to rest, then snap it to
--- the nearest free pad if one is within ATTACH_RANGE studs.
+-- After an item is dropped, wait for it to come to rest, then snap it into
+-- the nearest empty grid spot within ATTACH_RANGE studs.
 local function tryAttachToSurface(item)
 	local mainPart = getMainPart(item)
 	if not mainPart then
@@ -213,9 +240,9 @@ local function tryAttachToSurface(item)
 		end
 		-- Still tumbling fast? Wait for the next check.
 		if mainPart.AssemblyLinearVelocity.Magnitude < 4 then
-			local slot = findNearestFreeSlot(item, mainPart)
-			if slot then
-				attachItemToSlot(item, slot)
+			local holder, index = findNearestFreeSpot(item, mainPart)
+			if holder then
+				attachItemToHolder(item, holder, index)
 			end
 			return -- settled: either slotted or resting somewhere else
 		end
