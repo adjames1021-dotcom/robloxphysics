@@ -128,8 +128,11 @@ local SLOT_COLUMNS = 3
 local SLOT_ROWS = 2
 local MAX_ITEMS = SLOT_COLUMNS * SLOT_ROWS
 
--- How close (studs) a dropped item must be to a holder to snap into it.
-local ATTACH_RANGE = 5
+-- How close (studs) a dropped item must be to a grid spot to snap into it.
+local ATTACH_RANGE = 2.5
+
+-- Use the middle of the holder's top for the grid (keeps clear of the lip).
+local GRID_MARGIN = 0.82
 
 local holderItems = {} -- holder part -> { [gridIndex] = item }
 local itemHolder = {} -- item -> { holder = part, index = gridIndex }
@@ -138,10 +141,27 @@ local itemHolder = {} -- item -> { holder = part, index = gridIndex }
 local function getSlotCFrame(holder, index)
 	local column = (index - 1) % SLOT_COLUMNS
 	local row = math.floor((index - 1) / SLOT_COLUMNS)
-	local x = (column - (SLOT_COLUMNS - 1) / 2) * holder.Size.X / SLOT_COLUMNS
-	local z = (row - (SLOT_ROWS - 1) / 2) * holder.Size.Z / SLOT_ROWS
+	local x = (column - (SLOT_COLUMNS - 1) / 2) * holder.Size.X * GRID_MARGIN / SLOT_COLUMNS
+	local z = (row - (SLOT_ROWS - 1) / 2) * holder.Size.Z * GRID_MARGIN / SLOT_ROWS
 	return holder.CFrame * CFrame.new(x, holder.Size.Y / 2, z)
 end
+
+-- Every part physically welded to the item - the whole cookie, even when
+-- it's built from separate welded objects (disc + chips).
+local function getAssemblyParts(item)
+	local mainPart = getMainPart(item)
+	if not mainPart then
+		return {}
+	end
+	local parts = { mainPart }
+	for _, part in ipairs(mainPart:GetConnectedParts(true)) do
+		if part ~= mainPart and not part.Anchored then
+			table.insert(parts, part)
+		end
+	end
+	return parts
+end
+
 
 -- This holder's occupancy table, with vanished items tidied out.
 local function getHolderItems(holder)
@@ -161,6 +181,10 @@ local function getHolderItems(holder)
 end
 
 -- Snaps the item onto grid spot #index and welds it there.
+-- The ENTIRE welded assembly (disc + chips + anything else welded on) is
+-- teleported together and laid flat, aligned with the sheet, resting so its
+-- lowest point touches the sheet's top - no floating, no sinking, and no
+-- physics freak-out from moving one welded piece without its partners.
 -- A WeldConstraint is like an invisible bolt: the item becomes one solid
 -- piece with the holder until the weld is destroyed.
 local function attachItemToHolder(item, holder, index)
@@ -169,9 +193,33 @@ local function attachItemToHolder(item, holder, index)
 		return
 	end
 
-	item:PivotTo(getSlotCFrame(holder, index) * CFrame.new(0, getHalfHeight(item), 0))
-	mainPart.AssemblyLinearVelocity = Vector3.zero
-	mainPart.AssemblyAngularVelocity = Vector3.zero
+	local slotTop = getSlotCFrame(holder, index)
+
+	-- The move: pivot goes to the grid spot, laid flat with the sheet.
+	local delta = slotTop * item:GetPivot():Inverse()
+
+	-- Work out where every welded piece ends up, and how low the whole
+	-- thing would hang, so we can lift it to rest exactly on the top.
+	local parts = getAssemblyParts(item)
+	local newCFrames = {}
+	local lowestY = math.huge
+	for i, part in ipairs(parts) do
+		local cf = delta * part.CFrame
+		newCFrames[i] = cf
+		local size = part.Size
+		-- half the part's height along world up, whatever its tilt
+		local halfY = (math.abs(cf.RightVector.Y) * size.X
+			+ math.abs(cf.UpVector.Y) * size.Y
+			+ math.abs(cf.LookVector.Y) * size.Z) / 2
+		lowestY = math.min(lowestY, cf.Position.Y - halfY)
+	end
+	local lift = Vector3.new(0, slotTop.Position.Y - lowestY, 0)
+
+	for i, part in ipairs(parts) do
+		part.CFrame = newCFrames[i] + lift
+		part.AssemblyLinearVelocity = Vector3.zero
+		part.AssemblyAngularVelocity = Vector3.zero
+	end
 
 	local weld = Instance.new("WeldConstraint")
 	weld.Name = "SurfaceWeld"
@@ -233,13 +281,13 @@ local function tryAttachToSurface(item)
 		return
 	end
 
-	for _ = 1, 10 do -- keep checking for ~3 seconds while it settles
-		task.wait(0.3)
+	for _ = 1, 15 do -- keep checking for ~3 seconds while it settles
+		task.wait(0.2)
 		if not item.Parent or carriedBy[item] then
 			return -- item was destroyed, or someone grabbed it again
 		end
 		-- Still tumbling fast? Wait for the next check.
-		if mainPart.AssemblyLinearVelocity.Magnitude < 4 then
+		if mainPart.AssemblyLinearVelocity.Magnitude < 6 then
 			local holder, index = findNearestFreeSpot(item, mainPart)
 			if holder then
 				attachItemToHolder(item, holder, index)
@@ -324,7 +372,10 @@ end
 
 local function bake(item)
 	for _, part in ipairs(getParts(item)) do
-		part.Color = COOKED_COLOR
+		-- chocolate chips stay chocolate: skip parts with "chip" in the name
+		if not string.find(string.lower(part.Name), "chip") then
+			part.Color = COOKED_COLOR
+		end
 	end
 	CollectionService:RemoveTag(item, Tags.UncookedCookie)
 	item:SetAttribute("Cooked", true)
