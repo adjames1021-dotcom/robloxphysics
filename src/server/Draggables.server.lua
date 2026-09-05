@@ -146,20 +146,31 @@ local function getSlotCFrame(holder, index)
 	return holder.CFrame * CFrame.new(x, holder.Size.Y / 2, z)
 end
 
--- Every part physically welded to the item - the whole cookie, even when
--- it's built from separate welded objects (disc + chips).
-local function getAssemblyParts(item)
+-- Every part welded to the item WITHOUT passing through a holder or an
+-- anchored part: the whole cookie (disc + chips), but NOT the sheet it may
+-- be welded onto - and therefore not the other cookies on that sheet.
+local function getWeldedGroup(item)
 	local mainPart = getMainPart(item)
 	if not mainPart then
 		return {}
 	end
-	local parts = { mainPart }
-	for _, part in ipairs(mainPart:GetConnectedParts(true)) do
-		if part ~= mainPart and not part.Anchored then
-			table.insert(parts, part)
+	local seen = { [mainPart] = true }
+	local queue = { mainPart }
+	local group = { mainPart }
+	while #queue > 0 do
+		local part = table.remove(queue)
+		for _, neighbor in ipairs(part:GetConnectedParts()) do
+			if not seen[neighbor] then
+				seen[neighbor] = true
+				if not neighbor.Anchored
+					and not CollectionService:HasTag(neighbor, Tags.AttachSurface) then
+					table.insert(group, neighbor)
+					table.insert(queue, neighbor)
+				end
+			end
 		end
 	end
-	return parts
+	return group
 end
 
 
@@ -172,9 +183,14 @@ local function getHolderItems(holder)
 	end
 	for index, occupant in pairs(items) do
 		local entry = itemHolder[occupant]
-		if not occupant.Parent or not entry
+		local mainPart = occupant.Parent and getMainPart(occupant)
+		local stillWelded = mainPart and mainPart:FindFirstChild("SurfaceWeld")
+		if not stillWelded or not entry
 			or entry.holder ~= holder or entry.index ~= index then
-			items[index] = nil -- stale entry, clean it up
+			items[index] = nil -- gone or unwelded: free the spot
+			if entry and entry.holder == holder and entry.index == index then
+				itemHolder[occupant] = nil
+			end
 		end
 	end
 	return items
@@ -200,7 +216,14 @@ local function attachItemToHolder(item, holder, index)
 
 	-- Work out where every welded piece ends up, and how low the whole
 	-- thing would hang, so we can lift it to rest exactly on the top.
-	local parts = getAssemblyParts(item)
+	local parts = getWeldedGroup(item)
+
+	-- Take physics control on the server for the snap, so the previous
+	-- carrier's machine can't overwrite the teleport with stale positions
+	-- (that's what left cookies hovering in the air).
+	for _, part in ipairs(parts) do
+		pcall(part.SetNetworkOwner, part, nil)
+	end
 	local newCFrames = {}
 	local lowestY = math.huge
 	for i, part in ipairs(parts) do
@@ -227,13 +250,18 @@ local function attachItemToHolder(item, holder, index)
 	weld.Part1 = mainPart
 	weld.Parent = mainPart
 
+	-- Hand physics decisions back to Roblox now that it's welded on.
+	pcall(mainPart.SetNetworkOwnershipAuto, mainPart)
+
 	getHolderItems(holder)[index] = item
 	itemHolder[item] = { holder = holder, index = index }
 end
 
--- Unsticks the item: removes its weld and frees up its grid spot.
+-- Unsticks the item: removes its weld and frees up its grid spot. The weld
+-- can live on any piece of the welded group (grabbing a chip must free the
+-- whole cookie), so search all of it.
 local function detachFromSurface(item)
-	for _, part in ipairs(getParts(item)) do
+	for _, part in ipairs(getWeldedGroup(item)) do
 		local weld = part:FindFirstChild("SurfaceWeld")
 		if weld then
 			weld:Destroy()
